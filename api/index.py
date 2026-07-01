@@ -51,7 +51,12 @@ API_KEY = os.environ.get("API_KEY", "nexus_jwt_key_2026")
 CLIENT_SECRET = "2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3"
 APP_ID = "100067"
 CONNECT = "https://100067.connect.garena.com"
-LOGINBP = "https://loginbp.ggpolarbear.com"
+LOGINBP_HOSTS = [
+    "loginbp.ggpolarbear.com",  # Polarbear
+    "loginbp.ggblueshark.com",  # Blueshark
+    "loginbp.common.ggbluefox.com",  # Bluefox
+]
+LOGINBP = "https://" + LOGINBP_HOSTS[0]
 CREDIT = "NEXUS JWT TOKEN GEN"
 
 # ============ JWT CACHE ⚡ ============
@@ -180,7 +185,7 @@ def build_major_login(access_token, open_id):
     return encrypted.hex(), None
 
 def do_major_login(encrypted_payload):
-    """Send MajorLogin and extract JWT"""
+    """Send MajorLogin to all loginbp hosts, try each until one works"""
     headers = {
         "Accept-Encoding": "gzip", "Authorization": "Bearer",
         "Connection": "Keep-Alive", "Content-Type": "application/x-www-form-urlencoded",
@@ -188,19 +193,27 @@ def do_major_login(encrypted_payload):
         "User-Agent": "BestHTTP/2 v2.4.8",
         "X-GA": "v1 1", "X-Unity-Version": "2018.4.",
     }
-    try:
-        r = requests.post(f"{LOGINBP}/MajorLogin", headers=headers,
-                         data=encrypted_payload, timeout=15)
-        if r.status_code == 200:
-            dec = aes_decrypt(r.content)
-            res = MajorLoginRes_pb2.MajorLoginRes()
-            res.ParseFromString(dec)
-            if res.token:
-                return res.token, res.server_url, str(res.account_id), None
-            return None, None, None, "No token in response"
-        return None, None, None, f"HTTP {r.status_code}"
-    except Exception as e:
-        return None, None, None, str(e)
+    errors = []
+    for host in LOGINBP_HOSTS:
+        url = f"https://{host}/MajorLogin"
+        try:
+            r = requests.post(url, headers=headers,
+                             data=encrypted_payload, timeout=15)
+            if r.status_code == 200:
+                try:
+                    dec = aes_decrypt(r.content)
+                    res = MajorLoginRes_pb2.MajorLoginRes()
+                    res.ParseFromString(dec)
+                    if res.token:
+                        return res.token, res.server_url, str(res.account_id), None, host
+                    errors.append(f"{host}: no token in response")
+                except Exception as e:
+                    errors.append(f"{host}: decrypt/parse error: {e}")
+            else:
+                errors.append(f"{host}: HTTP {r.status_code}")
+        except Exception as e:
+            errors.append(f"{host}: {e}")
+    return None, None, None, "; ".join(errors), None
 
 # ============ ROUTES ============
 @application.route("/api")
@@ -253,7 +266,7 @@ def jwttoken():
     if HAS_PROTOBUF and HAS_CRYPTO:
         payload, build_err = build_major_login(at, oi)
         if payload:
-            jwt, server_url, account_id, major_err = do_major_login(payload)
+            jwt, server_url, account_id, major_err, host_used = do_major_login(payload)
             major_error = major_err
         else:
             major_error = build_err
@@ -282,6 +295,8 @@ def jwttoken():
         response["server_url"] = server_url
     if account_id:
         response["account_id"] = account_id
+    if host_used:
+        response["majorlogin_host"] = f"https://{host_used}/MajorLogin"
     if major_error:
         response["majorlogin_error"] = major_error
     
@@ -312,7 +327,7 @@ def gen():
     if HAS_PROTOBUF and HAS_CRYPTO:
         payload, _ = build_major_login(at, oi)
         if payload:
-            jwt, _, account_id, _ = do_major_login(payload) or (at, None, None, None)
+            jwt, _, account_id, _, _ = do_major_login(payload) or (at, None, None, None, None)
     
     return jsonify({
         "success": True, "credit": CREDIT,
