@@ -47,7 +47,9 @@ def jwttoken():
         elapsed = f"{time.time()-start:.2f}s"
         return jsonify({
             "success": True, "credit": CREDIT, "processing_time": elapsed,
-            "open_id": d.get("open_id"), "access_token": d.get("access_token"),
+            "open_id": d.get("open_id"), "uid": uid,
+            "jwt": d.get("access_token"),
+            "note": "jwt = access_token — use this to authenticate Free Fire API calls"
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
