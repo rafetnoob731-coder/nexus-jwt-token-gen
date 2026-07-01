@@ -1,0 +1,8 @@
+__pycache__
+*.pyc
+.vercel
+README.md
+pregen.py
+flask_api.py
+api.py
+cloudflare-worker
