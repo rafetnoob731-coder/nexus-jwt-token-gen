@@ -248,11 +248,17 @@ def jwttoken():
     jwt = None
     account_id = None
     server_url = None
+    major_error = None
     
     if HAS_PROTOBUF and HAS_CRYPTO:
         payload, build_err = build_major_login(at, oi)
         if payload:
             jwt, server_url, account_id, major_err = do_major_login(payload)
+            major_error = major_err
+        else:
+            major_error = build_err
+    else:
+        major_error = f"Missing modules: protobuf={HAS_PROTOBUF}, crypto={HAS_CRYPTO}"
     
     # Step 3: Fallback if MajorLogin failed
     if not jwt:
@@ -269,12 +275,15 @@ def jwttoken():
         "processing_time": elapsed,
         "open_id": oi, "uid": uid,
         "jwt": jwt,
+        "note": "The jwt field contains your game authentication token. If it's a 64-char hex string, that's the access_token (MajorLogin from Vercel IP may be restricted). If it starts with 'eyJ', it's the full JWT.",
     }
     
     if server_url:
         response["server_url"] = server_url
     if account_id:
         response["account_id"] = account_id
+    if major_error:
+        response["majorlogin_error"] = major_error
     
     return jsonify(response)
 
