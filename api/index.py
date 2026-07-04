@@ -225,7 +225,9 @@ def health():
         "cache_size": len(jwt_cache),
         "endpoints": {
             "jwttoken": "/api/jwttoken?key=KEY&uid=UID&password=PASS",
-            "gen": "/api/gen?key=KEY&region=BD"
+            "gen": "/api/gen?key=KEY&region=BD",
+            "verify": "/api/verify?key=KEY",
+            "create": "/api/create?key=KEY&verify=Done"
         }
     })
 
@@ -301,6 +303,79 @@ def jwttoken():
         response["majorlogin_error"] = major_error
     
     return jsonify(response)
+
+@application.route("/api/verify")
+def verify_key():
+    """Simple key verification endpoint for NEXUS FF APK"""
+    key = request.args.get("key")
+    
+    if not key:
+        return jsonify({"success": False, "error": "Missing key parameter"}), 400
+    
+    if key == API_KEY:
+        return jsonify({
+            "success": True,
+            "valid": True,
+            "message": "✅ Key verified! Access granted to NEXUS FF.",
+            "plan": "premium",
+            "expires": "unlimited",
+            "credit": CREDIT
+        })
+    
+    return jsonify({
+        "success": False,
+        "valid": False,
+        "error": "❌ Invalid key. Access denied."
+    }), 403
+
+
+@application.route("/api/create")
+def create():
+    """Create account after key verification"""
+    verify = request.args.get("verify")
+    key = request.args.get("key")
+    region = request.args.get("region", "BD").upper()
+    
+    if not key or key != API_KEY:
+        return jsonify({"success": False, "error": "Invalid API Key"}), 403
+    
+    if verify == "Done":
+        # Generate a new Free Fire account
+        raw_pass = f"NEXUS_{random.randint(10000, 99999)}"
+        pass_hash = sha256(raw_pass)
+        
+        start = time.time()
+        uid, err = register_guest(pass_hash)
+        if err:
+            return jsonify({"success": False, "error": err}), 500
+        
+        at, oi, err = token_grant(uid, pass_hash)
+        if err:
+            return jsonify({"success": False, "error": err, "uid": uid, "password": raw_pass}), 500
+        
+        # Try MajorLogin
+        jwt = at
+        if HAS_PROTOBUF and HAS_CRYPTO:
+            payload, _ = build_major_login(at, oi)
+            if payload:
+                jwt_result, _, _, _, _ = do_major_login(payload)
+                if jwt_result:
+                    jwt = jwt_result
+        
+        return jsonify({
+            "success": True,
+            "credit": CREDIT,
+            "processing_time": f"{time.time()-start:.2f}s",
+            "uid": uid,
+            "password": raw_pass,
+            "open_id": oi,
+            "jwt": jwt,
+            "region": region,
+            "message": "✅ Account created successfully!"
+        })
+    
+    return jsonify({"success": False, "error": "Invalid verify parameter. Use ?verify=Done"}), 400
+
 
 @application.route("/api/gen")
 def gen():
